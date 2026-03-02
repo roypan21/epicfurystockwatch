@@ -438,14 +438,22 @@ export default function Dashboard() {
         <div className="flex-1 overflow-hidden">
           {(() => {
             const sep = '\u00A0\u00A0\u00A0\u25C6\u00A0\u00A0\u00A0';
-            const text = news?.articles?.length
-              ? news.articles.map((a) => a.title).join(sep)
-              : 'Breaking \u00B7 US & Israel launch Operation Epic Fury on Iran \u00B7 Supreme Leader Khamenei reported killed \u00B7 Iran retaliating across the region';
-            const doubled = text + sep + text + sep;
+            const KEYWORDS = ['iran', 'israel', 'us ', 'usa', 'war', 'conflict', 'military', 'attack', 'strike', 'missile', 'nuclear', 'sanction', 'hormuz', 'oil', 'tehran', 'khamenei', 'epic fury'];
+            const filtered = (news?.articles ?? []).filter((a) => {
+              const hay = (a.title + ' ' + (a.description ?? '')).toLowerCase();
+              return KEYWORDS.some((k) => hay.includes(k));
+            });
+            const items = filtered.length > 0
+              ? filtered.map((a) => `${a.title}  [${timeAgo(new Date(a.publishedAt).getTime())}]`)
+              : ['Breaking · US & Israel launch Operation Epic Fury on Iran · Supreme Leader Khamenei reported killed · Iran retaliating'];
+            const text     = items.join(sep);
+            const doubled  = text + sep + text + sep;
+            const duration = `${Math.max(80, Math.round(text.length / 6))}s`;
             return (
               <span
                 key={news?.lastUpdated ?? 0}
                 className="ticker-track text-[11px] font-medium tracking-wide"
+                style={{ animationDuration: duration }}
               >
                 {doubled}
               </span>
