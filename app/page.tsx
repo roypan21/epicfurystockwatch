@@ -443,8 +443,13 @@ export default function Dashboard() {
               const hay = (a.title + ' ' + (a.description ?? '')).toLowerCase();
               return KEYWORDS.some((k) => hay.includes(k));
             });
+            const fmtCT = (iso: string) =>
+              new Date(iso).toLocaleString('en-US', {
+                timeZone: 'America/Chicago', month: 'short', day: 'numeric',
+                hour: 'numeric', minute: '2-digit', hour12: true,
+              }) + ' CT';
             const items = filtered.length > 0
-              ? filtered.map((a) => `${a.title}  [${timeAgo(new Date(a.publishedAt).getTime())}]`)
+              ? filtered.map((a) => `${a.title}  [${fmtCT(a.publishedAt)}]`)
               : ['Breaking · US & Israel launch Operation Epic Fury on Iran · Supreme Leader Khamenei reported killed · Iran retaliating'];
             const text     = items.join(sep);
             const doubled  = text + sep + text + sep;
@@ -542,11 +547,11 @@ export default function Dashboard() {
           {recommendations && (
             <div className="flex items-center justify-between gap-3 mb-4 px-1">
               <div className="flex items-center gap-2 text-[11px] text-[#6B6B6B]">
-                <span className="text-base">🤖</span>
                 <span>
-                  AI-generated · {recommendations.model?.split('/').pop()}
+                  🤖 Groq · Llama 4 Maverick
                   {recommendations.latencyMs ? <> · {recommendations.latencyMs}ms</> : null}
-                  {recommendations.fetchedAt ? <> · Updated {timeAgo(recommendations.fetchedAt)}</> : null}
+                  {recommendations.fetchedAt ? <> · {new Date(recommendations.fetchedAt).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })} CT</> : null}
+                  {!recommendations.fromCache && !recsLoading && <span className="ml-1 text-[#1A6B3C] bg-[#D1EFE0] px-1.5 py-0.5 rounded font-semibold">✓ Fresh</span>}
                   {recommendations.fromCache && <span className="ml-1 text-[#2C6FAC] bg-[#EBF3FB] px-1.5 py-0.5 rounded">cached</span>}
                   {recommendations.stale    && <span className="ml-1 text-[#92400E] bg-[#FDE68A] px-1.5 py-0.5 rounded">stale</span>}
                 </span>
