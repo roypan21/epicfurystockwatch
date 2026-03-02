@@ -1,3 +1,5 @@
+// Static fallback data — used only when /api/recommendations (Groq AI) fails.
+// Normal operation: stock lists are fully AI-generated from live news + market data.
 export interface StockEntry {
   ticker: string;
   name: string;
