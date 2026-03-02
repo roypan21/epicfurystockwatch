@@ -470,13 +470,11 @@ export default function Dashboard() {
   const fetchAll = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [c, s, n] = await Promise.allSettled([
+      const [c, n] = await Promise.allSettled([
         fetch('/api/commodities').then((r) => r.json()),
-        fetch('/api/stocks').then((r) => r.json()),
         fetch('/api/news').then((r) => r.json()),
       ]);
       if (c.status === 'fulfilled') setCommodities(c.value);
-      if (s.status === 'fulfilled') setStocks(s.value);
       if (n.status === 'fulfilled') setNews(n.value);
       setLastRefresh(Date.now());
     } finally {
@@ -488,22 +486,33 @@ export default function Dashboard() {
   const fetchRecommendations = useCallback(async (force = false) => {
     setRecsLoading(true);
     try {
-      const url  = force ? '/api/recommendations?force=true' : '/api/recommendations';
-      const res  = await fetch(url);
-      const data = await res.json();
+      const url = force ? '/api/recommendations?force=true' : '/api/recommendations';
+      const res = await fetch(url);
+      const data: RecommendationsResponse = await res.json();
       setRecommendations(data);
 
-      // Fetch live prices for all AI-picked tickers
-      const allTickers = [
-        ...(data.buy  ?? []).flatMap((c: AICategory) => c.stocks.map((s: AIStock) => s.ticker)),
-        ...(data.avoid ?? []).flatMap((c: AICategory) => c.stocks.map((s: AIStock) => s.ticker)),
-      ];
-      const unique = [...new Set(allTickers)];
-      if (unique.length > 0) {
-        const sq     = await fetch(`/api/stocks?symbols=${unique.join(',')}`);
-        const quotes: Quote[] = await sq.json();
-        setStocks(quotes);
+      // Only fetch live prices if we got valid category data (not an error response)
+      if (!data.error && (data.buy?.length ?? 0) + (data.avoid?.length ?? 0) > 0) {
+        const allTickers = [
+          ...(data.buy  ?? []).flatMap((c: AICategory) => c.stocks.map((s: AIStock) => s.ticker)),
+          ...(data.avoid ?? []).flatMap((c: AICategory) => c.stocks.map((s: AIStock) => s.ticker)),
+        ];
+        const unique = [...new Set(allTickers)] as string[];
+        if (unique.length > 0) {
+          const sq = await fetch(`/api/stocks?symbols=${unique.join(',')}`);
+          if (sq.ok) {
+            const quotes: Quote[] = await sq.json();
+            setStocks(quotes);
+          }
+        }
       }
+    } catch (err) {
+      setRecommendations((prev) => prev ?? ({
+        summary: '', buy: [], avoid: [],
+        fromCache: false, fetchedAt: 0, nextUpdate: 0,
+        latencyMs: 0, model: '', tokensUsed: null,
+        error: String(err),
+      } as RecommendationsResponse));
     } finally {
       setRecsLoading(false);
     }
