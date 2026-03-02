@@ -1,29 +1,17 @@
 import { NextResponse } from 'next/server';
 import { fetchQuotes } from '@/lib/yahoo';
 
-export const dynamic  = 'force-dynamic';
-export const revalidate = 0;
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const symbolsParam = searchParams.get('symbols') ?? '';
+  const tickers = symbolsParam
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean)
+    .slice(0, 40);
 
-const TICKERS = [
-  // Buy — Defense
-  'LMT', 'RTX', 'NOC', 'BA',
-  // Buy — Energy
-  'XOM', 'CVX', 'COP',
-  // Buy — Gold
-  'GOLD', 'NEM',
-  // Buy — Cyber
-  'PLTR', 'CRWD', 'PANW',
-  // Avoid — Airlines
-  'DAL', 'UAL', 'AAL', 'LUV',
-  // Avoid — Tech
-  'NVDA', 'TSLA', 'META', 'AMZN',
-  // Avoid — Consumer
-  'NKE', 'SBUX', 'CCL', 'RCL',
-  // Avoid — Shipping
-  'ZIM',
-];
+  if (tickers.length === 0) return NextResponse.json([]);
 
-export async function GET() {
-  const quotes = await fetchQuotes(TICKERS);
+  const quotes = await fetchQuotes(tickers);
   return NextResponse.json(quotes);
 }
