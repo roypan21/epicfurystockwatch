@@ -72,9 +72,14 @@ function timeAgo(ts: number): string {
 
 function timeUntil(ts: number): string {
   const diff = Math.floor((ts - Date.now()) / 1000);
-  if (diff <= 0)   return 'now';
-  if (diff < 60)   return `${diff}s`;
-  return `${Math.ceil(diff / 60)}m`;
+  if (diff <= 0)    return 'now';
+  if (diff < 60)    return `${diff}s`;
+  if (diff < 3600) {
+    const m = Math.floor(diff / 60);
+    const s = diff % 60;
+    return `${m}m ${s < 10 ? '0' : ''}${s}s`;
+  }
+  return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`;
 }
 
 function fmtPrice(price: number | null, unit?: string): string {
@@ -277,8 +282,15 @@ function NewsCard({ news, tick }: { news: NewsResponse | null; tick: number }) {
       )}
 
       <div className="divide-y divide-[#E2E2DC]">
-        {news.articles.length > 0 ? (
-          news.articles.map((a, i) => (
+        {(() => {
+          const KEYWORDS = ['iran', 'israel', 'us ', 'usa', 'war', 'conflict', 'military', 'attack', 'strike', 'missile', 'nuclear', 'sanction', 'hormuz', 'oil', 'tehran', 'khamenei', 'epic fury'];
+          const visible = news.articles.filter((a) => {
+            const hay = (a.title + ' ' + (a.description ?? '')).toLowerCase();
+            return KEYWORDS.some((k) => hay.includes(k));
+          });
+          const items = visible.length > 0 ? visible : news.articles;
+          return items.length > 0 ? (
+          items.map((a, i) => (
             <a
               key={i}
               href={a.url}
@@ -307,7 +319,8 @@ function NewsCard({ news, tick }: { news: NewsResponse | null; tick: number }) {
           ))
         ) : (
           <div className="px-5 py-10 text-center text-sm text-[#9A9A9A]">No articles available</div>
-        )}
+        );
+        })()}
       </div>
     </div>
   );
@@ -407,7 +420,7 @@ export default function Dashboard() {
     const recsPoll = setInterval(() => fetchRecommendations(false), 15 * 60 * 1000);
 
     // ── UI clock tick every 30 s ─────────────────────────────────────────
-    const clock = setInterval(() => setTick((t) => t + 1), 30_000);
+    const clock = setInterval(() => setTick((t) => t + 1), 10_000);
 
     return () => {
       es.close();
