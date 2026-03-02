@@ -24,21 +24,24 @@
 .spin-refresh { animation: spin-refresh 0.9s linear infinite; display: inline-block; }
 
 @-webkit-keyframes ticker-scroll {
-  0%   { -webkit-transform: translateX(0);    transform: translateX(0); }
-  100% { -webkit-transform: translateX(-50%); transform: translateX(-50%); }
+  0%   { -webkit-transform: translate3d(0, 0, 0);    transform: translate3d(0, 0, 0); }
+  100% { -webkit-transform: translate3d(-50%, 0, 0); transform: translate3d(-50%, 0, 0); }
 }
 @keyframes ticker-scroll {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  0%   { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-50%, 0, 0); }
 }
 .ticker-track {
   display: inline-block;
   white-space: nowrap;
-  -webkit-animation: ticker-scroll 40s linear infinite;
-          animation: ticker-scroll 40s linear infinite;
-  -webkit-transform: translateZ(0);
-          transform: translateZ(0);
-  will-change: transform;
+  -webkit-animation-name: ticker-scroll;
+          animation-name: ticker-scroll;
+  -webkit-animation-timing-function: linear;
+          animation-timing-function: linear;
+  -webkit-animation-iteration-count: infinite;
+          animation-iteration-count: infinite;
+  -webkit-animation-duration: 80s;
+          animation-duration: 80s;
 }
 @media (prefers-reduced-motion: reduce) {
   .ticker-track { -webkit-animation: none; animation: none; }

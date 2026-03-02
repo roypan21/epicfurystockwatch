@@ -446,9 +446,10 @@ export default function Dashboard() {
     <div className="min-h-screen bg-[#F4F4F1]">
 
       {/* ── Breaking Banner ─────────────────────────────────────────────────── */}
-      <div className="bg-[#1E3A5F] text-white py-2.5 flex items-center gap-2.5 sticky top-0 z-50 overflow-hidden">
+      <div className="bg-[#1E3A5F] text-white sticky top-0 z-50">
+        <div className="flex items-center gap-2.5 py-2.5 overflow-hidden">
         <span className="w-2 h-2 bg-red-500 rounded-full flex-shrink-0 pulse-dot ml-4" />
-        <div className="flex-1 overflow-hidden min-w-0">
+        <div className="flex-1 min-w-0">
           {(() => {
             const sep = '\u00A0\u00A0\u00A0\u25C6\u00A0\u00A0\u00A0';
             const KEYWORDS = ['iran', 'israel', 'us ', 'usa', 'war', 'conflict', 'military', 'attack', 'strike', 'missile', 'nuclear', 'sanction', 'hormuz', 'oil', 'tehran', 'khamenei', 'epic fury'];
@@ -477,6 +478,7 @@ export default function Dashboard() {
               </span>
             );
           })()}
+        </div>
         </div>
       </div>
 
