@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   buyCategories,
   avoidCategories,
@@ -39,6 +39,15 @@ interface NewsResponse {
   refreshMinutes: number;
   provider?: 'guardian' | 'newsapi';
   stale?: boolean;
+  error?: string;
+}
+
+interface AnalysisResponse {
+  analysis: string;
+  model: string;
+  latencyMs: number;
+  tokensUsed: number | null;
+  generatedAt: number;
   error?: string;
 }
 
@@ -153,6 +162,119 @@ const ICON_BG: Record<string, string> = {
   amber: 'bg-[#FFFBEB]',
   red:   'bg-[#FEF2F2]',
 };
+
+// ─── Simple inline markdown renderer ─────────────────────────────────────────
+function RenderMarkdown({ text }: { text: string }) {
+  const lines = text.split('\n');
+  return (
+    <div className="space-y-3">
+      {lines.map((line, i) => {
+        if (line.startsWith('### ')) {
+          return (
+            <h3 key={i} className="text-[13px] font-bold text-[#1E3A5F] mt-4 first:mt-0 flex items-center gap-2">
+              <span className="w-1 h-4 bg-[#2C6FAC] rounded-full flex-shrink-0" />
+              {line.replace('### ', '')}
+            </h3>
+          );
+        }
+        if (line.startsWith('## ')) {
+          return <h2 key={i} className="text-[14px] font-bold text-[#1E3A5F]">{line.replace('## ', '')}</h2>;
+        }
+        if (line.startsWith('• ') || line.startsWith('- ')) {
+          const content = line.replace(/^[•\-] /, '');
+          // Bold **text**
+          const parts = content.split(/(\*\*[^*]+\*\*)/g);
+          return (
+            <div key={i} className="flex gap-2 text-[13px] text-[#1A1A1A] leading-relaxed">
+              <span className="text-[#2C6FAC] flex-shrink-0 mt-0.5">•</span>
+              <span>
+                {parts.map((p, j) =>
+                  p.startsWith('**') ? (
+                    <strong key={j} className="font-semibold text-[#1E3A5F]">{p.replace(/\*\*/g, '')}</strong>
+                  ) : p
+                )}
+              </span>
+            </div>
+          );
+        }
+        if (line.trim() === '') return <div key={i} className="h-1" />;
+        // Regular paragraph with bold support
+        const parts = line.split(/(\*\*[^*]+\*\*)/g);
+        return (
+          <p key={i} className="text-[13px] text-[#6B6B6B] leading-relaxed">
+            {parts.map((p, j) =>
+              p.startsWith('**') ? (
+                <strong key={j} className="font-semibold text-[#1A1A1A]">{p.replace(/\*\*/g, '')}</strong>
+              ) : p
+            )}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function AnalysisPanel({
+  tab, analysis, loading, onRegenerate,
+}: {
+  tab: 'buy' | 'avoid';
+  analysis: AnalysisResponse | null;
+  loading: boolean;
+  onRegenerate: () => void;
+}) {
+  const accentColor = tab === 'buy' ? '#1A6B3C' : '#B91C1C';
+  const accentBg    = tab === 'buy' ? '#EBF7F0' : '#FEF2F2';
+  const accentBorder= tab === 'buy' ? '#A7D7BC' : '#FCA5A5';
+
+  return (
+    <div
+      className="rounded-xl border overflow-hidden shadow-sm"
+      style={{ borderColor: accentBorder, background: accentBg }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b" style={{ borderColor: accentBorder }}>
+        <div className="flex items-center gap-2.5">
+          <span className="text-lg">🤖</span>
+          <div>
+            <div className="text-[13px] font-semibold" style={{ color: accentColor }}>
+              AI Analysis — {tab === 'buy' ? 'Stocks to Consider' : 'Stocks to Avoid'}
+            </div>
+            <div className="text-[11px] text-[#6B6B6B]">
+              Powered by Groq · {analysis?.model?.split('/').pop() ?? 'Llama 4 Maverick'}
+              {analysis && (
+                <> · {analysis.latencyMs}ms · {analysis.tokensUsed} tokens · Generated {timeAgo(analysis.generatedAt)}</>
+              )}
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={onRegenerate}
+          disabled={loading}
+          className="flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50"
+          style={{ color: accentColor, borderColor: accentBorder, background: 'white' }}
+        >
+          <span className={loading ? 'spin-refresh' : ''}>↻</span>
+          {loading ? 'Analysing…' : 'Regenerate'}
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="px-5 py-4">
+        {loading ? (
+          <div className="space-y-3 animate-pulse">
+            {[80, 60, 90, 70, 85, 65].map((w, i) => (
+              <div key={i} className="h-3 bg-white/70 rounded" style={{ width: `${w}%` }} />
+            ))}
+          </div>
+        ) : analysis?.error ? (
+          <div className="text-[13px] text-[#B91C1C]">⚠ {analysis.error}</div>
+        ) : analysis ? (
+          <RenderMarkdown text={analysis.analysis} />
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 function CategoryCard({ cat, stockMap }: { cat: StockCategory; stockMap: Record<string, Quote> }) {
   return (
@@ -272,19 +394,59 @@ function NewsCard({ news, tick }: { news: NewsResponse | null; tick: number }) {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [commodities, setCommodities] = useState<Commodity[]>([]);
-  const [stocks, setStocks]           = useState<Quote[]>([]);
-  const [news, setNews]               = useState<NewsResponse | null>(null);
-  const [tab, setTab]                 = useState<'buy' | 'avoid'>('buy');
-  const [lastRefresh, setLastRefresh] = useState<number>(Date.now());
-  const [loading, setLoading]         = useState(true);
-  const [refreshing, setRefreshing]   = useState(false);
-  const [tick, setTick]               = useState(0);
+  const [commodities, setCommodities]   = useState<Commodity[]>([]);
+  const [stocks, setStocks]             = useState<Quote[]>([]);
+  const [news, setNews]                 = useState<NewsResponse | null>(null);
+  const [tab, setTab]                   = useState<'buy' | 'avoid'>('buy');
+  const [lastRefresh, setLastRefresh]   = useState<number>(Date.now());
+  const [loading, setLoading]           = useState(true);
+  const [refreshing, setRefreshing]     = useState(false);
+  const [tick, setTick]                 = useState(0);
+  const [analysis, setAnalysis]         = useState<AnalysisResponse | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const analysisTabRef = useRef<string>('');
 
   const stockMap = useMemo(
     () => Object.fromEntries(stocks.map((s) => [s.symbol, s])),
     [stocks]
   );
+
+  const fetchAnalysis = useCallback(async (currentTab: 'buy' | 'avoid', currentStocks: Quote[], currentNews: NewsResponse | null) => {
+    if (analysisLoading) return;
+    setAnalysisLoading(true);
+    setAnalysis(null);
+    analysisTabRef.current = currentTab;
+
+    const categories = currentTab === 'buy' ? buyCategories : avoidCategories;
+
+    try {
+      const res = await fetch('/api/analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tab: currentTab,
+          categories: categories.map((c) => ({
+            title: c.title,
+            tag: c.tag,
+            stocks: c.stocks.map((s) => ({ ticker: s.ticker, name: s.name, etf: s.etf })),
+          })),
+          stocks: currentStocks,
+          news: currentNews?.articles ?? [],
+        }),
+      });
+      const data = await res.json();
+      // Only update if tab hasn't changed while fetching
+      if (analysisTabRef.current === currentTab) {
+        setAnalysis(data);
+      }
+    } catch (err) {
+      if (analysisTabRef.current === currentTab) {
+        setAnalysis({ analysis: '', model: '', latencyMs: 0, tokensUsed: null, generatedAt: Date.now(), error: String(err) });
+      }
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }, [analysisLoading]);
 
   const fetchAll = useCallback(async () => {
     setRefreshing(true);
@@ -306,10 +468,18 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchAll();
-    const poll  = setInterval(fetchAll, 5 * 60 * 1000);       // refresh every 5 min
-    const clock = setInterval(() => setTick((t) => t + 1), 30_000); // update timestamps
+    const poll  = setInterval(fetchAll, 5 * 60 * 1000);
+    const clock = setInterval(() => setTick((t) => t + 1), 30_000);
     return () => { clearInterval(poll); clearInterval(clock); };
   }, [fetchAll]);
+
+  // Run analysis once stocks + news are loaded, and whenever tab changes
+  useEffect(() => {
+    if (!loading && stocks.length > 0) {
+      fetchAnalysis(tab, stocks, news);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, loading]);
 
   // derive time labels — tick dependency ensures they update every 30s
   const lastRefreshLabel = useMemo(() => timeAgo(lastRefresh), [lastRefresh, tick]);
@@ -430,6 +600,16 @@ export default function Dashboard() {
             {categories.map((cat, i) => (
               <CategoryCard key={i} cat={cat} stockMap={stockMap} />
             ))}
+          </div>
+
+          {/* AI Analysis */}
+          <div className="mt-6">
+            <AnalysisPanel
+              tab={tab}
+              analysis={analysis}
+              loading={analysisLoading}
+              onRegenerate={() => fetchAnalysis(tab, stocks, news)}
+            />
           </div>
         </section>
 

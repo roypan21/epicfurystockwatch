@@ -8,6 +8,7 @@ Copy these into Railway → Project → Variables before deploying.
 |---|---|
 | `GUARDIAN_API_KEY` | `7032c3bd-1fa6-4dc5-b63b-d5f8428812ab` |
 | `NEWSAPI_KEY` | `c6902198c40045fc9573acda247d4a1a` |
+| `GROQ_API_KEY` | *(see your Groq console — never commit this value)* |
 
 ## Optional
 
