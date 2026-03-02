@@ -42,6 +42,23 @@ interface NewsResponse {
   error?: string;
 }
 
+interface AIStock    { ticker: string; name: string; reason: string; etf?: boolean }
+interface AICategory { category: string; icon: string; tag: string; subtitle: string; stocks: AIStock[] }
+
+interface RecommendationsResponse {
+  summary: string;
+  buy:          AICategory[];
+  avoid:        AICategory[];
+  fromCache:    boolean;
+  fetchedAt:    number;
+  nextUpdate:   number;
+  latencyMs:    number;
+  model:        string;
+  tokensUsed:   number | null;
+  stale?:       boolean;
+  error?:       string;
+}
+
 interface AnalysisResponse {
   analysis: string;
   model: string;
@@ -405,6 +422,8 @@ export default function Dashboard() {
   const [analysis, setAnalysis]         = useState<AnalysisResponse | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const analysisTabRef = useRef<string>('');
+  const [recommendations, setRecommendations] = useState<RecommendationsResponse | null>(null);
+  const [recsLoading, setRecsLoading]         = useState(true);
 
   const stockMap = useMemo(
     () => Object.fromEntries(stocks.map((s) => [s.symbol, s])),
@@ -466,20 +485,38 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchRecommendations = useCallback(async (force = false) => {
+    setRecsLoading(true);
+    try {
+      const url  = force ? '/api/recommendations?force=true' : '/api/recommendations';
+      const res  = await fetch(url);
+      const data = await res.json();
+      setRecommendations(data);
+
+      // Fetch live prices for all AI-picked tickers
+      const allTickers = [
+        ...(data.buy  ?? []).flatMap((c: AICategory) => c.stocks.map((s: AIStock) => s.ticker)),
+        ...(data.avoid ?? []).flatMap((c: AICategory) => c.stocks.map((s: AIStock) => s.ticker)),
+      ];
+      const unique = [...new Set(allTickers)];
+      if (unique.length > 0) {
+        const sq     = await fetch(`/api/stocks?symbols=${unique.join(',')}`);
+        const quotes: Quote[] = await sq.json();
+        setStocks(quotes);
+      }
+    } finally {
+      setRecsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchAll();
-    const poll  = setInterval(fetchAll, 5 * 60 * 1000);
-    const clock = setInterval(() => setTick((t) => t + 1), 30_000);
-    return () => { clearInterval(poll); clearInterval(clock); };
-  }, [fetchAll]);
-
-  // Run analysis once stocks + news are loaded, and whenever tab changes
-  useEffect(() => {
-    if (!loading && stocks.length > 0) {
-      fetchAnalysis(tab, stocks, news);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, loading]);
+    fetchRecommendations();                                        // initial load
+    const poll     = setInterval(fetchAll, 5 * 60 * 1000);        // prices every 5 min
+    const recsPoll = setInterval(() => fetchRecommendations(false), 15 * 60 * 1000); // AI recs every 15 min
+    const clock    = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => { clearInterval(poll); clearInterval(recsPoll); clearInterval(clock); };
+  }, [fetchAll, fetchRecommendations]);
 
   // derive time labels — tick dependency ensures they update every 30s
   const lastRefreshLabel = useMemo(() => timeAgo(lastRefresh), [lastRefresh, tick]);
