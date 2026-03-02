@@ -384,13 +384,38 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    fetchAll();
-    fetchRecommendations();                                        // initial load
-    const poll     = setInterval(fetchAll, 5 * 60 * 1000);        // prices every 5 min
-    const recsPoll = setInterval(() => fetchRecommendations(false), 15 * 60 * 1000); // AI recs every 15 min
-    const clock    = setInterval(() => setTick((t) => t + 1), 30_000);
-    return () => { clearInterval(poll); clearInterval(recsPoll); clearInterval(clock); };
-  }, [fetchAll, fetchRecommendations]);
+    // ── SSE stream: live commodities + news ───────────────────────────────
+    const es = new EventSource('/api/stream');
+
+    es.addEventListener('commodities', (e: MessageEvent) => {
+      try {
+        setCommodities(JSON.parse(e.data));
+        setLoading(false);
+        setLastRefresh(Date.now());
+      } catch { /* ignore parse errors */ }
+    });
+
+    es.addEventListener('news', (e: MessageEvent) => {
+      try { setNews(JSON.parse(e.data)); } catch { /* ignore */ }
+    });
+
+    // Safety net: clear loading after 8 s even if SSE is slow
+    const loadGuard = setTimeout(() => setLoading(false), 8_000);
+
+    // ── AI recommendations: 15-min poll + manual ─────────────────────────
+    fetchRecommendations();
+    const recsPoll = setInterval(() => fetchRecommendations(false), 15 * 60 * 1000);
+
+    // ── UI clock tick every 30 s ─────────────────────────────────────────
+    const clock = setInterval(() => setTick((t) => t + 1), 30_000);
+
+    return () => {
+      es.close();
+      clearTimeout(loadGuard);
+      clearInterval(recsPoll);
+      clearInterval(clock);
+    };
+  }, [fetchRecommendations]);
 
   // derive time labels — tick dependency ensures they update every 30s
   const lastRefreshLabel = useMemo(() => timeAgo(lastRefresh), [lastRefresh, tick]);
@@ -408,13 +433,18 @@ export default function Dashboard() {
     <div className="min-h-screen bg-[#F4F4F1]">
 
       {/* ── Breaking Banner ─────────────────────────────────────────────────── */}
-      <div className="bg-[#1E3A5F] text-white py-2.5 px-4 flex items-center gap-2.5 sticky top-0 z-50">
-        <span className="w-2 h-2 bg-red-500 rounded-full flex-shrink-0 pulse-dot" />
-        <p className="text-[11px] font-medium tracking-wide uppercase truncate">
-          Breaking — Feb 28, 2026 &nbsp;·&nbsp; US &amp; Israel launch Operation Epic Fury on Iran
-          &nbsp;·&nbsp; Supreme Leader Khamenei reported killed
-          &nbsp;·&nbsp; Iran retaliating across the region
-        </p>
+      <div className="bg-[#1E3A5F] text-white py-2.5 flex items-center gap-2.5 sticky top-0 z-50 overflow-hidden">
+        <span className="w-2 h-2 bg-red-500 rounded-full flex-shrink-0 pulse-dot ml-4" />
+        <div className="flex-1 overflow-hidden">
+          <span className="ticker-track text-[11px] font-medium tracking-wide uppercase">
+            Breaking — Feb 28, 2026 &nbsp;·&nbsp; US &amp; Israel launch Operation Epic Fury on Iran
+            &nbsp;·&nbsp; Supreme Leader Khamenei reported killed &nbsp;·&nbsp; Iran retaliating across the region
+            &nbsp;&nbsp;&nbsp;&#9670;&nbsp;&nbsp;&nbsp;
+            Breaking — Feb 28, 2026 &nbsp;·&nbsp; US &amp; Israel launch Operation Epic Fury on Iran
+            &nbsp;·&nbsp; Supreme Leader Khamenei reported killed &nbsp;·&nbsp; Iran retaliating across the region
+            &nbsp;&nbsp;&nbsp;&#9670;&nbsp;&nbsp;&nbsp;
+          </span>
+        </div>
       </div>
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-24">

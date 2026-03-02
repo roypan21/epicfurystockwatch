@@ -22,3 +22,17 @@
   to   { transform: rotate(360deg); }
 }
 .spin-refresh { animation: spin-refresh 0.9s linear infinite; display: inline-block; }
+
+@keyframes ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: ticker-scroll 40s linear infinite;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track { animation: none; }
+}
