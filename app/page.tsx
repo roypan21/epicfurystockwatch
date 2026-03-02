@@ -494,7 +494,7 @@ export default function Dashboard() {
         {/* ── Stock Tabs ───────────────────────────────────────────────────────── */}
         <section className="mb-8">
           {/* AI status bar */}
-          {recommendations && !recsLoading && (
+          {recommendations && (
             <div className="flex items-center justify-between gap-3 mb-4 px-1">
               <div className="flex items-center gap-2 text-[11px] text-[#6B6B6B]">
                 <span className="text-base">🤖</span>
@@ -509,9 +509,9 @@ export default function Dashboard() {
               <button
                 onClick={() => fetchRecommendations(true)}
                 disabled={recsLoading}
-                className="text-[11px] font-medium text-[#2C6FAC] bg-[#EBF3FB] border border-[#C8DDEF] px-2.5 py-1 rounded-lg hover:bg-[#DBEEFB] transition-colors"
+                className="text-[11px] font-medium text-[#2C6FAC] bg-[#EBF3FB] border border-[#C8DDEF] px-2.5 py-1 rounded-lg hover:bg-[#DBEEFB] transition-colors disabled:opacity-50"
               >
-                ↻ Regenerate AI
+                {recsLoading ? '↻ Regenerating…' : '↻ Regenerate AI'}
               </button>
             </div>
           )}
