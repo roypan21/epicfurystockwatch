@@ -15,6 +15,23 @@ interface Cache      { data: AIResponse; fetchedAt: number; model: string; token
 
 let cache: Cache | null = null;
 
+// Fix 2: in-flight deduplication
+let inflight: Promise<void> | null = null;
+
+// Fix 6: buildCacheResponse helper
+function buildCacheResponse(c: Cache, stale = false) {
+  return {
+    ...c.data,
+    fromCache:  true,
+    fetchedAt:  c.fetchedAt,
+    nextUpdate: c.fetchedAt + CACHE_MS,
+    latencyMs:  c.latencyMs,
+    model:      c.model,
+    tokensUsed: c.tokensUsed,
+    ...(stale ? { stale: true } : {}),
+  };
+}
+
 async function fetchNews(): Promise<string> {
   const key = process.env.GUARDIAN_API_KEY;
   if (!key) return 'No news available.';
@@ -112,8 +129,9 @@ export async function GET(req: Request) {
   const force = new URL(req.url).searchParams.get('force') === 'true';
   const now   = Date.now();
 
+  // Fix 6: use buildCacheResponse helper for fresh cache hit
   if (!force && cache && now - cache.fetchedAt < CACHE_MS) {
-    return NextResponse.json({ ...cache.data, fromCache: true, fetchedAt: cache.fetchedAt, nextUpdate: cache.fetchedAt + CACHE_MS, latencyMs: cache.latencyMs, model: cache.model, tokensUsed: cache.tokensUsed });
+    return NextResponse.json(buildCacheResponse(cache));
   }
 
   const apiKey = process.env.GROQ_API_KEY;
@@ -121,53 +139,92 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'GROQ_API_KEY not configured' }, { status: 500 });
   }
 
-  const [news, market] = await Promise.all([fetchNews(), fetchMarket()]);
-  const prompt = buildPrompt(news, market);
-
-  const t0  = Date.now();
-  const res = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: [
-        { role: 'system', content: 'You are a financial analyst AI. Return ONLY valid JSON. No markdown, no explanation, no code blocks.' },
-        { role: 'user', content: prompt },
-      ],
-      temperature: 0.2,
-      max_tokens: 2048,
-      response_format: { type: 'json_object' },
-    }),
-    cache: 'no-store',
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    if (cache) return NextResponse.json({ ...cache.data, fromCache: true, stale: true, fetchedAt: cache.fetchedAt, nextUpdate: cache.fetchedAt + CACHE_MS, latencyMs: cache.latencyMs, model: cache.model, tokensUsed: cache.tokensUsed });
-    return NextResponse.json({ error: `Groq error: ${res.status} ${err}` }, { status: 502 });
+  // Fix 2: in-flight deduplication — await any concurrent Groq call
+  if (inflight) {
+    await inflight;
+    if (cache) return NextResponse.json(buildCacheResponse(cache));
   }
 
-  const json      = await res.json();
-  const raw       = json.choices?.[0]?.message?.content ?? '{}';
-  const latencyMs = Date.now() - t0;
+  let resolveInflight!: () => void;
+  inflight = new Promise<void>((r) => { resolveInflight = r; });
 
-  let data: AIResponse;
+  // Fix 1: wrap entire Groq block in try/catch with stale fallback
   try {
-    data = JSON.parse(raw);
-  } catch {
-    if (cache) return NextResponse.json({ ...cache.data, fromCache: true, stale: true, fetchedAt: cache.fetchedAt, nextUpdate: cache.fetchedAt + CACHE_MS, latencyMs: cache.latencyMs, model: cache.model, tokensUsed: cache.tokensUsed });
-    return NextResponse.json({ error: 'Failed to parse Groq JSON response' }, { status: 500 });
+    const [news, market] = await Promise.all([fetchNews(), fetchMarket()]);
+    const prompt = buildPrompt(news, market);
+
+    const t0 = Date.now();
+
+    // Fix 5: AbortController timeout (10s)
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 10_000);
+
+    let res: Response;
+    try {
+      res = await fetch(GROQ_URL, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages: [
+            { role: 'system', content: 'You are a financial analyst AI. Return ONLY valid JSON. No markdown, no explanation, no code blocks.' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.2,
+          max_tokens: 2048,
+          response_format: { type: 'json_object' },
+        }),
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    // Fix 3: sanitise Groq error response
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('[recommendations] Groq HTTP error:', res.status, err);
+      if (cache) return NextResponse.json(buildCacheResponse(cache, true));
+      return NextResponse.json({ error: 'AI service temporarily unavailable' }, { status: 502 });
+    }
+
+    const json      = await res.json();
+    const raw       = json.choices?.[0]?.message?.content ?? '{}';
+    const latencyMs = Date.now() - t0;
+
+    let data: AIResponse;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      if (cache) return NextResponse.json(buildCacheResponse(cache, true));
+      return NextResponse.json({ error: 'Failed to parse Groq JSON response' }, { status: 500 });
+    }
+
+    // Fix 4: validate JSON.parse result structure
+    if (!data.summary || !Array.isArray(data.buy) || !Array.isArray(data.avoid)) {
+      throw new Error('Groq returned unexpected JSON structure');
+    }
+
+    cache = { data, fetchedAt: now, model: GROQ_MODEL, tokensUsed: json.usage?.total_tokens ?? null, latencyMs };
+
+    return NextResponse.json({
+      ...data,
+      fromCache:  false,
+      fetchedAt:  now,
+      nextUpdate: now + CACHE_MS,
+      latencyMs,
+      model:      GROQ_MODEL,
+      tokensUsed: json.usage?.total_tokens ?? null,
+    });
+  } catch (err) {
+    // Fix 1: return stale cache on any transport/unexpected error, otherwise 502
+    console.error('[recommendations] Groq call failed:', err);
+    if (cache) return NextResponse.json(buildCacheResponse(cache, true));
+    return NextResponse.json({ error: 'AI service temporarily unavailable' }, { status: 502 });
+  } finally {
+    // Fix 2: always clear inflight and resolve waiters
+    inflight = null;
+    resolveInflight();
   }
-
-  cache = { data, fetchedAt: now, model: GROQ_MODEL, tokensUsed: json.usage?.total_tokens ?? null, latencyMs };
-
-  return NextResponse.json({
-    ...data,
-    fromCache:  false,
-    fetchedAt:  now,
-    nextUpdate: now + CACHE_MS,
-    latencyMs,
-    model:      GROQ_MODEL,
-    tokensUsed: json.usage?.total_tokens ?? null,
-  });
 }
