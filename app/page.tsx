@@ -37,6 +37,7 @@ interface NewsResponse {
   nextUpdate: number;
   fromCache: boolean;
   refreshMinutes: number;
+  provider?: 'guardian' | 'newsapi';
   stale?: boolean;
   error?: string;
 }
@@ -189,10 +190,20 @@ function NewsCard({ news, tick }: { news: NewsResponse | null; tick: number }) {
     <div className="bg-white border border-[#E2E2DC] rounded-xl shadow-sm overflow-hidden">
       <div className="flex items-start justify-between gap-3 px-5 py-3.5 border-b border-[#E2E2DC]">
         <div>
-          <h2 className="text-[13px] font-semibold text-[#1E3A5F] flex items-center gap-2">
+          <h2 className="text-[13px] font-semibold text-[#1E3A5F] flex items-center gap-2 flex-wrap">
             📰 Live News Feed
-            {news.fromCache && (
+            {news.provider === 'guardian' && (
+              <span className="text-[9px] bg-[#D1EFE0] text-[#1A6B3C] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide">
+                The Guardian · Real-time
+              </span>
+            )}
+            {news.provider === 'newsapi' && (
               <span className="text-[9px] bg-[#FDE68A] text-[#92400E] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide">
+                NewsAPI · 24h delay
+              </span>
+            )}
+            {news.fromCache && (
+              <span className="text-[9px] bg-[#EBF3FB] text-[#2C6FAC] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide">
                 Cached
               </span>
             )}
