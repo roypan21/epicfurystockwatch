@@ -11,7 +11,7 @@ const YF_HEADERS = { 'User-Agent': 'Mozilla/5.0' };
 interface AIStock    { ticker: string; name: string; reason: string; etf?: boolean }
 interface AICategory { category: string; icon: string; tag: string; subtitle: string; stocks: AIStock[] }
 interface AIResponse { summary: string; buy: AICategory[]; avoid: AICategory[] }
-interface Cache      { data: AIResponse; fetchedAt: number }
+interface Cache      { data: AIResponse; fetchedAt: number; model: string; tokensUsed: number | null; latencyMs: number }
 
 let cache: Cache | null = null;
 
@@ -113,7 +113,7 @@ export async function GET(req: Request) {
   const now   = Date.now();
 
   if (!force && cache && now - cache.fetchedAt < CACHE_MS) {
-    return NextResponse.json({ ...cache.data, fromCache: true, fetchedAt: cache.fetchedAt, nextUpdate: cache.fetchedAt + CACHE_MS });
+    return NextResponse.json({ ...cache.data, fromCache: true, fetchedAt: cache.fetchedAt, nextUpdate: cache.fetchedAt + CACHE_MS, latencyMs: cache.latencyMs, model: cache.model, tokensUsed: cache.tokensUsed });
   }
 
   const apiKey = process.env.GROQ_API_KEY;
@@ -143,7 +143,7 @@ export async function GET(req: Request) {
 
   if (!res.ok) {
     const err = await res.text();
-    if (cache) return NextResponse.json({ ...cache.data, fromCache: true, stale: true, fetchedAt: cache.fetchedAt, nextUpdate: cache.fetchedAt + CACHE_MS });
+    if (cache) return NextResponse.json({ ...cache.data, fromCache: true, stale: true, fetchedAt: cache.fetchedAt, nextUpdate: cache.fetchedAt + CACHE_MS, latencyMs: cache.latencyMs, model: cache.model, tokensUsed: cache.tokensUsed });
     return NextResponse.json({ error: `Groq error: ${res.status} ${err}` }, { status: 502 });
   }
 
@@ -155,11 +155,11 @@ export async function GET(req: Request) {
   try {
     data = JSON.parse(raw);
   } catch {
-    if (cache) return NextResponse.json({ ...cache.data, fromCache: true, stale: true, fetchedAt: cache.fetchedAt, nextUpdate: cache.fetchedAt + CACHE_MS });
+    if (cache) return NextResponse.json({ ...cache.data, fromCache: true, stale: true, fetchedAt: cache.fetchedAt, nextUpdate: cache.fetchedAt + CACHE_MS, latencyMs: cache.latencyMs, model: cache.model, tokensUsed: cache.tokensUsed });
     return NextResponse.json({ error: 'Failed to parse Groq JSON response' }, { status: 500 });
   }
 
-  cache = { data, fetchedAt: now };
+  cache = { data, fetchedAt: now, model: GROQ_MODEL, tokensUsed: json.usage?.total_tokens ?? null, latencyMs };
 
   return NextResponse.json({
     ...data,
