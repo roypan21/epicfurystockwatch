@@ -435,7 +435,7 @@ export default function Dashboard() {
       {/* ── Breaking Banner ─────────────────────────────────────────────────── */}
       <div className="bg-[#1E3A5F] text-white py-2.5 flex items-center gap-2.5 sticky top-0 z-50 overflow-hidden">
         <span className="w-2 h-2 bg-red-500 rounded-full flex-shrink-0 pulse-dot ml-4" />
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden min-w-0">
           {(() => {
             const sep = '\u00A0\u00A0\u00A0\u25C6\u00A0\u00A0\u00A0';
             const KEYWORDS = ['iran', 'israel', 'us ', 'usa', 'war', 'conflict', 'military', 'attack', 'strike', 'missile', 'nuclear', 'sanction', 'hormuz', 'oil', 'tehran', 'khamenei', 'epic fury'];
@@ -458,7 +458,7 @@ export default function Dashboard() {
               <span
                 key={news?.lastUpdated ?? 0}
                 className="ticker-track text-[11px] font-medium tracking-wide"
-                style={{ animationDuration: duration }}
+                style={{ animationDuration: duration, WebkitAnimationDuration: duration }}
               >
                 {doubled}
               </span>
