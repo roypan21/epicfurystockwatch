@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   buyCategories,
   avoidCategories,
@@ -339,6 +339,7 @@ export default function Dashboard() {
   const [tick, setTick]                 = useState(0);
   const [recommendations, setRecommendations] = useState<RecommendationsResponse | null>(null);
   const [recsLoading, setRecsLoading]         = useState(true);
+  const tickerRef = useRef<HTMLSpanElement>(null);
 
   const stockMap = useMemo(
     () => Object.fromEntries(stocks.map((s) => [s.symbol, s])),
@@ -397,13 +398,15 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    // ── SSE stream: live commodities + news ───────────────────────────────
+    // ── Direct HTTP fetch first (immediate fallback if SSE is slow/broken) ─
+    fetchAll();
+
+    // ── SSE stream: real-time commodity + news updates ────────────────────
     const es = new EventSource('/api/stream');
 
     es.addEventListener('commodities', (e: MessageEvent) => {
       try {
         setCommodities(JSON.parse(e.data));
-        setLoading(false);
         setLastRefresh(Date.now());
       } catch { /* ignore parse errors */ }
     });
@@ -412,25 +415,48 @@ export default function Dashboard() {
       try { setNews(JSON.parse(e.data)); } catch { /* ignore */ }
     });
 
-    // Safety net: clear loading after 8 s even if SSE is slow
-    const loadGuard = setTimeout(() => setLoading(false), 8_000);
-
     // ── AI recommendations: 15-min poll + manual ─────────────────────────
     fetchRecommendations();
     const recsPoll = setInterval(() => fetchRecommendations(false), 15 * 60 * 1000);
 
-    // ── UI clock tick every 30 s ─────────────────────────────────────────
+    // ── UI clock tick every 10 s ─────────────────────────────────────────
     const clock = setInterval(() => setTick((t) => t + 1), 10_000);
 
     return () => {
       es.close();
-      clearTimeout(loadGuard);
       clearInterval(recsPoll);
       clearInterval(clock);
     };
-  }, [fetchRecommendations]);
+  }, [fetchAll, fetchRecommendations]);
 
-  // derive time labels — tick dependency ensures they update every 30s
+  // ── Ticker JS animation (works on iOS Safari where CSS keyframes fail) ──
+  const newsTs = news?.lastUpdated ?? 0;
+  useEffect(() => {
+    const el = tickerRef.current;
+    if (!el) return;
+    let pos = 0;
+    let rafId: number;
+    // Two rAF calls to let layout settle before measuring scrollWidth
+    rafId = requestAnimationFrame(() => {
+      rafId = requestAnimationFrame(() => {
+        const halfWidth = el.scrollWidth / 2;
+        if (halfWidth <= 0) return;
+        const charLen = el.textContent?.length ?? 240;
+        const duration = Math.max(80, Math.round(charLen / 6)); // seconds
+        const speed = halfWidth / (duration * 60);              // px per frame @60fps
+        const tick = () => {
+          pos -= speed;
+          if (-pos >= halfWidth) pos = 0;
+          el.style.transform = `translateX(${pos}px)`;
+          rafId = requestAnimationFrame(tick);
+        };
+        rafId = requestAnimationFrame(tick);
+      });
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [newsTs]);
+
+  // derive time labels — tick dependency ensures they update every 10s
   const lastRefreshLabel = useMemo(() => timeAgo(lastRefresh), [lastRefresh, tick]);
 
   if (loading) {
@@ -465,14 +491,12 @@ export default function Dashboard() {
             const items = filtered.length > 0
               ? filtered.map((a) => `${a.title}  [${fmtCT(a.publishedAt)}]`)
               : ['Breaking · US & Israel launch Operation Epic Fury on Iran · Supreme Leader Khamenei reported killed · Iran retaliating'];
-            const text     = items.join(sep);
-            const doubled  = text + sep + text + sep;
-            const duration = `${Math.max(80, Math.round(text.length / 6))}s`;
+            const text    = items.join(sep);
+            const doubled = text + sep + text + sep;
             return (
               <span
-                key={news?.lastUpdated ?? 0}
-                className="ticker-track text-[11px] font-medium tracking-wide"
-                style={{ animationDuration: duration, WebkitAnimationDuration: duration }}
+                ref={tickerRef}
+                className="inline-block whitespace-nowrap text-[11px] font-medium tracking-wide"
               >
                 {doubled}
               </span>
