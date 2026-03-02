@@ -436,14 +436,21 @@ export default function Dashboard() {
       <div className="bg-[#1E3A5F] text-white py-2.5 flex items-center gap-2.5 sticky top-0 z-50 overflow-hidden">
         <span className="w-2 h-2 bg-red-500 rounded-full flex-shrink-0 pulse-dot ml-4" />
         <div className="flex-1 overflow-hidden">
-          <span className="ticker-track text-[11px] font-medium tracking-wide uppercase">
-            Breaking — Feb 28, 2026 &nbsp;·&nbsp; US &amp; Israel launch Operation Epic Fury on Iran
-            &nbsp;·&nbsp; Supreme Leader Khamenei reported killed &nbsp;·&nbsp; Iran retaliating across the region
-            &nbsp;&nbsp;&nbsp;&#9670;&nbsp;&nbsp;&nbsp;
-            Breaking — Feb 28, 2026 &nbsp;·&nbsp; US &amp; Israel launch Operation Epic Fury on Iran
-            &nbsp;·&nbsp; Supreme Leader Khamenei reported killed &nbsp;·&nbsp; Iran retaliating across the region
-            &nbsp;&nbsp;&nbsp;&#9670;&nbsp;&nbsp;&nbsp;
-          </span>
+          {(() => {
+            const sep = '\u00A0\u00A0\u00A0\u25C6\u00A0\u00A0\u00A0';
+            const text = news?.articles?.length
+              ? news.articles.map((a) => a.title).join(sep)
+              : 'Breaking \u00B7 US & Israel launch Operation Epic Fury on Iran \u00B7 Supreme Leader Khamenei reported killed \u00B7 Iran retaliating across the region';
+            const doubled = text + sep + text + sep;
+            return (
+              <span
+                key={news?.lastUpdated ?? 0}
+                className="ticker-track text-[11px] font-medium tracking-wide"
+              >
+                {doubled}
+              </span>
+            );
+          })()}
         </div>
       </div>
 
