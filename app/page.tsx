@@ -42,13 +42,12 @@ interface NewsResponse {
   error?: string;
 }
 
-interface AIStock    { ticker: string; name: string; reason: string; etf?: boolean }
-interface AICategory { category: string; icon: string; tag: string; subtitle: string; stocks: AIStock[] }
+interface AIStock { rank: number; ticker: string; name: string; sector: string; reason: string; etf?: boolean }
 
 interface RecommendationsResponse {
   summary: string;
-  buy:          AICategory[];
-  avoid:        AICategory[];
+  buy:   AIStock[];
+  avoid: AIStock[];
   fromCache:    boolean;
   fetchedAt:    number;
   nextUpdate:   number;
@@ -80,6 +79,36 @@ function timeUntil(ts: number): string {
     return `${m}m ${s < 10 ? '0' : ''}${s}s`;
   }
   return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`;
+}
+
+function groupBySector(stocks: AIStock[]): { sector: string; stocks: AIStock[] }[] {
+  const map = new Map<string, AIStock[]>();
+  for (const s of stocks) {
+    if (!map.has(s.sector)) map.set(s.sector, []);
+    map.get(s.sector)!.push(s);
+  }
+  return Array.from(map.entries())
+    .map(([sector, stocks]) => ({ sector, stocks }))
+    .sort((a, b) =>
+      Math.min(...a.stocks.map((s) => s.rank)) -
+      Math.min(...b.stocks.map((s) => s.rank))
+    );
+}
+
+function deriveTag(
+  stocks: AIStock[],
+  isBuy: boolean
+): { tag: string; tagType: 'green' | 'blue' | 'amber' | 'red' } {
+  const best = Math.min(...stocks.map((s) => s.rank));
+  if (isBuy) {
+    if (best <= 10) return { tag: 'Strong Buy', tagType: 'green' };
+    if (best <= 20) return { tag: 'Buy',        tagType: 'blue'  };
+    return                  { tag: 'Watch',      tagType: 'blue'  };
+  } else {
+    if (best <= 10) return { tag: 'Avoid',   tagType: 'red'   };
+    if (best <= 20) return { tag: 'Reduce',  tagType: 'amber' };
+    return                  { tag: 'Caution', tagType: 'amber' };
+  }
 }
 
 function fmtPrice(price: number | null, unit?: string): string {
@@ -135,12 +164,17 @@ function CommodityCard({ c, loading }: { c?: Commodity; loading: boolean }) {
 }
 
 function StockRow({
-  ticker, name, reason, etf, quote,
+  ticker, name, reason, etf, quote, rank,
 }: {
-  ticker: string; name: string; reason: string; etf?: boolean; quote?: Quote;
+  ticker: string; name: string; reason: string; etf?: boolean; quote?: Quote; rank?: number;
 }) {
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[#E2E2DC] last:border-0 hover:bg-[#FAFAF8] transition-colors">
+      {rank !== undefined && (
+        <span className="text-[10px] font-bold text-[#9A9A9A] w-6 text-right flex-shrink-0 tabular-nums">
+          #{rank}
+        </span>
+      )}
       <span
         className={`text-[11px] font-bold font-mono px-2 py-1 rounded text-center min-w-[54px]
           ${etf ? 'bg-[#F0EDE8] text-[#5C5040]' : 'bg-[#EBF3FB] text-[#2C6FAC]'}`}
@@ -178,32 +212,20 @@ const ICON_BG: Record<string, string> = {
 };
 
 
-function tagType(tag: string, isBuy: boolean): 'green' | 'blue' | 'amber' | 'red' {
-  const t = tag.toLowerCase();
-  if (t.includes('strong')) return 'green';
-  if (t.includes('avoid'))  return 'red';
-  if (t.includes('safe') || t.includes('haven') || t.includes('caution')) return 'amber';
-  return isBuy ? 'blue' : 'red';
-}
 
 function CategoryCard({
   cat, stockMap, isBuy,
 }: {
-  cat: AICategory | StockCategory;
+  cat: StockCategory;
   stockMap: Record<string, Quote>;
   isBuy: boolean;
 }) {
-  const title    = 'title' in cat ? cat.title : cat.category;
+  const title    = cat.title;
   const subtitle = cat.subtitle;
   const icon     = cat.icon;
   const tag      = cat.tag;
-  const stocks   = cat.stocks.map((s) => ({
-    ticker: s.ticker,
-    name:   s.name,
-    reason: s.reason,
-    etf:    'etf' in s ? s.etf : undefined,
-  }));
-  const type = 'tagType' in cat ? cat.tagType : tagType(tag, isBuy);
+  const stocks   = cat.stocks;
+  const type     = cat.tagType;
   return (
     <div className="bg-white border border-[#E2E2DC] rounded-xl overflow-hidden shadow-sm">
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#E2E2DC]">
@@ -222,6 +244,52 @@ function CategoryCard({
       </div>
       {stocks.map((s) => (
         <StockRow key={s.ticker} {...s} quote={stockMap[s.ticker]} />
+      ))}
+    </div>
+  );
+}
+
+function AISectorCard({
+  sector, stocks, stockMap, isBuy,
+}: {
+  sector: string;
+  stocks: AIStock[];
+  stockMap: Record<string, Quote>;
+  isBuy: boolean;
+}) {
+  const { tag, tagType } = deriveTag(stocks, isBuy);
+  const icon = isBuy
+    ? (tagType === 'green' ? '📈' : '👁')
+    : (tagType === 'red'   ? '📉' : '⚠');
+
+  return (
+    <div className="bg-white border border-[#E2E2DC] rounded-xl overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#E2E2DC]">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-base flex-shrink-0 ${ICON_BG[tagType]}`}>
+            {icon}
+          </div>
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-[#1E3A5F] truncate">{sector}</div>
+            <div className="text-[11px] text-[#6B6B6B]">
+              {stocks.length} stock{stocks.length !== 1 ? 's' : ''} · ranks #{Math.min(...stocks.map((s) => s.rank))}–#{Math.max(...stocks.map((s) => s.rank))}
+            </div>
+          </div>
+        </div>
+        <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded flex-shrink-0 ${TAG_COLORS[tagType]}`}>
+          {tag}
+        </span>
+      </div>
+      {stocks.map((s) => (
+        <StockRow
+          key={s.rank}
+          ticker={s.ticker}
+          name={s.name}
+          reason={s.reason}
+          etf={s.etf}
+          quote={stockMap[s.ticker]}
+          rank={s.rank}
+        />
       ))}
     </div>
   );
@@ -373,8 +441,8 @@ export default function Dashboard() {
       // Only fetch live prices if we got valid category data (not an error response)
       if (!data.error && (data.buy?.length ?? 0) + (data.avoid?.length ?? 0) > 0) {
         const allTickers = [
-          ...(data.buy  ?? []).flatMap((c: AICategory) => c.stocks.map((s: AIStock) => s.ticker)),
-          ...(data.avoid ?? []).flatMap((c: AICategory) => c.stocks.map((s: AIStock) => s.ticker)),
+          ...(data.buy   ?? []).map((s: AIStock) => s.ticker),
+          ...(data.avoid ?? []).map((s: AIStock) => s.ticker),
         ];
         const unique = [...new Set(allTickers)] as string[];
         if (unique.length > 0) {
@@ -607,8 +675,8 @@ export default function Dashboard() {
 
           <div className="flex gap-0 border-b border-[#E2E2DC] mb-6">
             {[
-              { id: 'buy'   as const, label: '✓  Stocks to Consider', activeColor: '#1A6B3C' },
-              { id: 'avoid' as const, label: '✕  Stocks to Avoid',    activeColor: '#B91C1C' },
+              { id: 'buy'   as const, label: `✓  Stocks to Consider${recommendations?.buy?.length  ? ` (${recommendations.buy.length})`  : ''}`, activeColor: '#1A6B3C' },
+              { id: 'avoid' as const, label: `✕  Stocks to Avoid${recommendations?.avoid?.length ? ` (${recommendations.avoid.length})` : ''}`,    activeColor: '#B91C1C' },
             ].map((t) => (
               <button
                 key={t.id}
@@ -642,9 +710,16 @@ export default function Dashboard() {
                 ))}
               </>
             ) : (
-              (tab === 'buy' ? recommendations?.buy : recommendations?.avoid)?.map((cat, i) => (
-                <CategoryCard key={i} cat={cat} stockMap={stockMap} isBuy={tab === 'buy'} />
-              )) ?? []
+              groupBySector(tab === 'buy' ? (recommendations?.buy ?? []) : (recommendations?.avoid ?? []))
+                .map(({ sector, stocks }) => (
+                  <AISectorCard
+                    key={sector}
+                    sector={sector}
+                    stocks={stocks}
+                    stockMap={stockMap}
+                    isBuy={tab === 'buy'}
+                  />
+                ))
             )}
           </div>
         </section>
